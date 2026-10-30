@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>HRV run</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; font: 16px/1.45 system-ui, sans-serif; color: #1c1917; background: #f7f5f2; }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.6rem; font-weight: 650; margin: 0 0 8px; }
+  p { margin: 0 0 12px; }
+  .muted { color: #57534e; }
+  form { display: flex; gap: 8px; margin: 20px 0; }
+  input { font: inherit; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 8px; flex: 1; }
+  button { font: inherit; padding: 10px 14px; border: 0; border-radius: 8px; background: #1c1917; color: white; cursor: pointer; }
+  .err { color: #9f1239; min-height: 1.2em; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 18px 0; }
+  .card { background: white; border-radius: 12px; padding: 14px 16px; }
+  .card b { display: block; font-size: 1.35rem; font-weight: 650; }
+  .card span { color: #57534e; font-size: 0.85rem; }
+  svg { width: 100%; height: auto; background: white; border-radius: 12px; }
+  #lock { margin-top: 16px; background: transparent; color: #1c1917; border: 1px solid #d6d3d1; }
+  #app { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HRV analysis</h1>
+  <p class="muted" id="intro">This page is locked. The numbers are encrypted. The password is not stored here.</p>
+  <form id="gate">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
+    <button type="submit">Open</button>
+  </form>
+  <p class="err" id="err"></p>
+  <div id="app">
+    <div class="stats" id="stats"></div>
+    <p id="step"></p>
+    <p id="left"></p>
+    <p class="muted" id="note"></p>
+    <svg id="chart" viewBox="0 0 880 320" role="img" aria-label="Memory in use over time"></svg>
+    <p class="muted" id="updated"></p>
+    <button id="lock" type="button">Lock</button>
+  </div>
+</main>
+<script>
+const ITER = 600000;
+const gate = document.getElementById("gate");
+const app = document.getElementById("app");
+const err = document.getElementById("err");
+
+function b64utf8(buf) { return new TextDecoder().decode(buf); }
+
+async function derive(password, salt) {
+  const material = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: ITER, hash: "SHA-256" },
+    material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+}
+
+async function unlock(password) {
+  const res = await fetch("status.bin?ts=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("The status file is not on the site yet.");
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (b64utf8(buf.slice(0, 4)) !== "HRV1") throw new Error("Unexpected file.");
+  const key = await derive(password, buf.slice(4, 20));
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: buf.slice(20, 32) }, key, buf.slice(32));
+  return JSON.parse(b64utf8(plain));
+}
+
+function card(value, label) {
+  return `<div class="card"><b>${value}</b><span>${label}</span></div>`;
+}
+
+function draw(series) {
+  const svg = document.getElementById("chart");
+  const w = 880, h = 320, l = 52, r = 16, t = 16, b = 36;
+  const xs = series.map(d => d.t), ys = series.map(d => d.used);
+  const yMax = Math.max(20, Math.ceil(Math.max(...ys) / 20) * 20);
+  const x = i => l + (w - l - r) * (i / Math.max(1, series.length - 1));
+  const y = v => t + (h - t - b) * (1 - v / yMax);
+  const line = series.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d.used).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(series.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+  const ticks = 4;
+  let grid = "";
+  for (let i = 0; i <= ticks; i++) {
+    const v = yMax * i / ticks;
+    grid += `<line x1="${l}" x2="${w - r}" y1="${y(v)}" y2="${y(v)}" stroke="#e7e5e4"/>`;
+    grid += `<text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12" fill="#57534e">${Math.round(v)}</text>`;
+  }
+  const first = series[0].t.replace("_", " ").slice(5, 16);
+  const last = series[series.length - 1].t.replace("_", " ").slice(5, 16);
+  svg.innerHTML = `${grid}
+    <path d="${area}" fill="#d6d3d1"/>
+    <path d="${line}" fill="none" stroke="#1c1917" stroke-width="2"/>
+    <text x="${l}" y="${h - 10}" font-size="12" fill="#57534e">${first}</text>
+    <text x="${w - r}" y="${h - 10}" text-anchor="end" font-size="12" fill="#57534e">${last}</text>
+    <text x="14" y="150" font-size="12" fill="#57534e" transform="rotate(-90 14 150)">GB in use</text>`;
+}
+
+function show(data) {
+  gate.style.display = "none";
+  document.getElementById("intro").style.display = "none";
+  app.style.display = "block";
+  err.textContent = "";
+  document.getElementById("stats").innerHTML = [
+    card(data.used_gb + " GB", "In use now"),
+    card(data.free_gb + " GB", "Free now"),
+    card(data.min_free_gb + " GB", "Lowest free this run"),
+    card(data.within_done + " of " + data.within_total, "Main models finished"),
+  ].join("");
+  document.getElementById("step").textContent = data.step;
+  document.getElementById("left").textContent =
+    "Main models: " + data.main_left + ". Full script, including the supplement: " + data.full_left + ".";
+  document.getElementById("note").textContent =
+    "This run started " + data.run_started + ". Memory has been recorded since " + data.tracking_since +
+    ". The job stops if free memory falls below " + data.kill_free_gb + " GB. " + data.full_note;
+  document.getElementById("updated").textContent = "Updated " + data.updated + ". This page checks for a new file every two minutes.";
+  draw(data.series);
+}
+
+async function openWith(password, quiet) {
+  err.textContent = quiet ? "" : "Checking the password…";
+  try {
+    const data = await unlock(password);
+    sessionStorage.setItem("hrv-status-pw", password);
+    show(data);
+  } catch (e) {
+    if (!quiet) err.textContent = "That password does not open this page.";
+    sessionStorage.removeItem("hrv-status-pw");
+  }
+}
+
+gate.addEventListener("submit", (e) => {
+  e.preventDefault();
+  openWith(document.getElementById("pw").value, false);
+});
+document.getElementById("lock").addEventListener("click", () => {
+  sessionStorage.removeItem("hrv-status-pw");
+  location.reload();
+});
+const saved = sessionStorage.getItem("hrv-status-pw");
+if (saved) openWith(saved, true);
+setInterval(() => {
+  const pw = sessionStorage.getItem("hrv-status-pw");
+  if (pw) openWith(pw, true);
+}, 120000);
+</script>
+</body>
+</html>

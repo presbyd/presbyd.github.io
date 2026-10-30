@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>HRV run</title>
+<title>Model updates</title>
 <style>
   :root { color-scheme: light; }
   body { margin: 0; font: 16px/1.45 system-ui, sans-serif; color: #1c1917; background: #f7f5f2; }
@@ -27,7 +27,7 @@
 </head>
 <body>
 <main>
-  <h1>HRV analysis</h1>
+  <h1>Model updates</h1>
   <p class="muted" id="intro">This page is locked. The numbers are encrypted. The password is not stored here.</p>
   <form id="gate">
     <input id="pw" type="password" autocomplete="current-password" placeholder="Password">
@@ -64,7 +64,7 @@ async function unlock(password) {
   const res = await fetch("status.bin?ts=" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("The status file is not on the site yet.");
   const buf = new Uint8Array(await res.arrayBuffer());
-  if (b64utf8(buf.slice(0, 4)) !== "HRV1") throw new Error("Unexpected file.");
+  if (b64utf8(buf.slice(0, 4)) !== "UPD1") throw new Error("Unexpected file.");
   const key = await derive(password, buf.slice(4, 20));
   const plain = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: buf.slice(20, 32) }, key, buf.slice(32));
@@ -126,11 +126,11 @@ async function openWith(password, quiet) {
   err.textContent = quiet ? "" : "Checking the password…";
   try {
     const data = await unlock(password);
-    sessionStorage.setItem("hrv-status-pw", password);
+    sessionStorage.setItem("updates-pw", password);
     show(data);
   } catch (e) {
     if (!quiet) err.textContent = "That password does not open this page.";
-    sessionStorage.removeItem("hrv-status-pw");
+    sessionStorage.removeItem("updates-pw");
   }
 }
 
@@ -139,13 +139,13 @@ gate.addEventListener("submit", (e) => {
   openWith(document.getElementById("pw").value, false);
 });
 document.getElementById("lock").addEventListener("click", () => {
-  sessionStorage.removeItem("hrv-status-pw");
+  sessionStorage.removeItem("updates-pw");
   location.reload();
 });
-const saved = sessionStorage.getItem("hrv-status-pw");
+const saved = sessionStorage.getItem("updates-pw");
 if (saved) openWith(saved, true);
 setInterval(() => {
-  const pw = sessionStorage.getItem("hrv-status-pw");
+  const pw = sessionStorage.getItem("updates-pw");
   if (pw) openWith(pw, true);
 }, 120000);
 </script>

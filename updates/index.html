@@ -108,17 +108,21 @@ function show(data) {
   err.textContent = "";
   document.getElementById("stats").innerHTML = [
     card(data.used_gb + " GB", "In use now"),
-    card(data.free_gb + " GB", "Free now"),
-    card(data.min_free_gb + " GB", "Lowest free this run"),
-    card(data.within_done + " of " + data.within_total, "Main models finished"),
+    card(data.free_gb + " GB", "Free now. Stops below " + data.kill_free_gb),
+    card((data.within_done ?? "–") + " of " + (data.within_total ?? "–"), "First set finished"),
+    card((data.follow_done ?? "–") + " of " + (data.follow_total ?? "–"), "Follow-on models finished"),
+    card((data.later_done ?? "–") + " of " + (data.later_total ?? "–"), "Supplementary checks finished"),
+    card(data.later_current ? ("Check " + data.later_current) : (data.closing_done ? "Saved" : "Not started"), data.later_current ? "Current supplementary check" : "Closing fit"),
+    card(data.job_alive ? "Running" : "Not running", "Job"),
+    card(data.elapsed || "–", "Since this run started"),
   ].join("");
   document.getElementById("step").textContent = data.step;
   document.getElementById("left").textContent =
-    "Main models: " + data.main_left + ". Full script, including the supplement: " + data.full_left + ".";
+    (data.pace ? data.pace + " " : "") + "Still queued: " + data.full_left + ".";
   document.getElementById("note").textContent =
-    "This run started " + data.run_started + ". Memory has been recorded since " + data.tracking_since +
-    ". The job stops if free memory falls below " + data.kill_free_gb + " GB. " + data.full_note;
-  document.getElementById("updated").textContent = "Updated " + data.updated + ". This page checks for a new file every two minutes.";
+    "This run started " + data.run_started + ". The lowest free memory so far is " + data.min_free_gb +
+    " GB. " + (data.full_note || "");
+  document.getElementById("updated").textContent = "Updated " + data.updated + ". This page looks for a new file every two minutes. A new file is published about every 15 minutes.";
   draw(data.series);
 }
 
